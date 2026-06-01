@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>New Grad Application Tracker</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">NT</div>
+          <div>
+            <h1>Nick's Job List</h1>
+            <p>New-grad SWE + AI/cloud roles</p>
+          </div>
+        </div>
+
+        <section class="panel">
+          <div class="panel-title">
+            <h2>Rank by</h2>
+            <button id="resetWeights" class="ghost-button">Reset</button>
+          </div>
+          <div id="weights" class="ranking-modes"></div>
+        </section>
+
+        <section class="panel compact">
+          <h2>Location</h2>
+          <select id="locationPreference">
+            <option value="flexible">Flexible</option>
+            <option value="remote">Remote first</option>
+            <option value="nyc">NYC / Northeast</option>
+            <option value="sf">Bay Area</option>
+            <option value="seattle">Seattle</option>
+            <option value="florida">Florida / Southeast</option>
+          </select>
+        </section>
+
+        <section class="panel compact">
+          <h2>Status</h2>
+          <div id="statusSummary" class="status-summary"></div>
+        </section>
+      </aside>
+
+      <main class="main">
+        <header class="toolbar">
+          <div>
+            <p class="eyebrow">Nicholas Tayag</p>
+            <h2>New-grad application tracker</h2>
+          </div>
+          <div class="toolbar-actions">
+            <input id="searchInput" type="search" placeholder="Search company, role, location, tech..." />
+            <button id="exportButton" class="primary-button">Export tracker</button>
+          </div>
+        </header>
+
+        <section class="metrics" id="metrics"></section>
+
+        <section class="dream-section" id="focusSection">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Focus</p>
+              <h3>Dream jobs</h3>
+            </div>
+            <div class="focus-actions">
+              <span id="focusSummary">Dream-company roles</span>
+              <button id="toggleFocus" class="ghost-button" type="button">Show</button>
+            </div>
+          </div>
+          <div class="dream-grid" id="dreamJobs"></div>
+        </section>
+
+        <section class="controls">
+          <button id="filterButton" class="filter-trigger" type="button">Filters</button>
+          <div class="segmented" id="sourceFilter">
+            <button data-source="all" class="active">All</button>
+            <button data-source="dream" class="dream-tab"><span class="bell-icon" aria-hidden="true">🔔</span><span id="dreamBell" class="bell-dot">0</span>Dream</button>
+            <button data-source="core">Core 100</button>
+            <button data-source="newgrad">More finds</button>
+            <button data-source="aiml">AI/ML</button>
+          </div>
+        </section>
+
+        <section class="filter-panel" id="filterPanel">
+          <div class="filter-heading">
+            <div>
+              <strong>Filters</strong>
+              <span>Built from the tags on your loaded roles.</span>
+            </div>
+            <div class="filter-actions">
+              <button id="clearFilters" class="ghost-button">Clear</button>
+              <button id="closeFilters" class="ghost-button">Close</button>
+            </div>
+          </div>
+          <div class="filters">
+            <label class="field">
+              <span>State</span>
+              <select id="stateFilter">
+                <option value="all">Any</option>
+              </select>
+            </label>
+            <label class="field wide">
+              <span>Location contains</span>
+              <input id="locationTextFilter" type="text" placeholder="FL, Orlando, Remote, NYC..." />
+            </label>
+            <label class="field">
+              <span>Pay greater than</span>
+              <input id="minPayInput" type="number" min="0" step="5000" placeholder="100000" />
+            </label>
+            <label class="field">
+              <span>Pay preset</span>
+              <select id="minPayFilter">
+                <option value="0">Any pay</option>
+                <option value="80000">$80k+</option>
+                <option value="100000">$100k+</option>
+                <option value="125000">$125k+</option>
+                <option value="150000">$150k+</option>
+                <option value="180000">$180k+</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Chance</span>
+              <select id="chanceFilter">
+                <option value="all">Any</option>
+                <option value="Higher">Higher</option>
+                <option value="Medium">Medium</option>
+                <option value="Lower">Lower</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Status</span>
+              <select id="statusFilter">
+                <option value="all">Any</option>
+                <option value="Saved">Saved</option>
+                <option value="Applying">Applying</option>
+                <option value="Applied">Applied</option>
+                <option value="Interviewing">Interviewing</option>
+                <option value="Rejected">Rejected</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Sort</span>
+              <select id="sortSelect">
+                <option value="score">Best overall</option>
+                <option value="pay">Highest pay</option>
+                <option value="statePay">State + pay</option>
+                <option value="dueSoon">Due soon</option>
+                <option value="location">Best location</option>
+                <option value="chance">Best chance</option>
+                <option value="freshness">Newest</option>
+                <option value="company">Company</option>
+              </select>
+            </label>
+            <label class="check-field">
+              <input id="remoteOnlyFilter" type="checkbox" />
+              <span>Remote only</span>
+            </label>
+            <label class="check-field">
+              <input id="hasPayFilter" type="checkbox" />
+              <span>Known pay only</span>
+            </label>
+          </div>
+          <div class="tag-filter-wrap">
+            <div class="tag-filter-heading">
+              <span>Tags from loaded roles</span>
+              <small>Click chips to stack filters</small>
+            </div>
+            <div class="tag-filters" id="tagFilters"></div>
+          </div>
+        </section>
+
+        <section class="content-grid">
+          <div class="role-list" id="roleList"></div>
+          <aside class="details" id="details">
+            <div class="empty-state">
+              <h3>Select a role</h3>
+              <p>Score breakdown, application link, notes, and tailoring prompts will show here.</p>
+            </div>
+          </aside>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
