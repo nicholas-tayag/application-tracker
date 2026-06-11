@@ -14,8 +14,8 @@ const types = {
   ".json": "application/json; charset=utf-8"
 };
 
-createServer((req, res) => {
-  const url = new URL(req.url || "/", `http://localhost:${port}`);
+const handler = (req, res) => {
+  const url = new URL(req.url || "/", `http://localhost:${currentPort}`);
   const requested = url.pathname === "/" ? "/index.html" : decodeURIComponent(url.pathname);
   const file = normalize(join(root, requested));
 
@@ -30,6 +30,36 @@ createServer((req, res) => {
     "cache-control": "no-store"
   });
   createReadStream(file).pipe(res);
-}).listen(port, () => {
-  console.log(`Application tracker running at http://localhost:${port}`);
+};
+
+let currentPort = port;
+
+async function startServer(startPort, maxAttempts = 10) {
+  let p = startPort;
+  for (let i = 0; i < maxAttempts; i++) {
+    const server = createServer(handler);
+    try {
+      await new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(p, () => resolve(server));
+      });
+      currentPort = p;
+      console.log(`Application tracker running at http://localhost:${p}`);
+      return;
+    } catch (err) {
+      if (err && err.code === "EADDRINUSE") {
+        server.close();
+        console.warn(`Port ${p} in use, trying port ${p + 1}...`);
+        p += 1;
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error(`No available ports found starting at ${startPort}`);
+}
+
+startServer(port).catch((err) => {
+  console.error(err);
+  process.exit(1);
 });

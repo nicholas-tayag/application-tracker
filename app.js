@@ -146,7 +146,7 @@ async function init() {
 }
 
 function bindEvents() {
-  els.filterButton.addEventListener("click", () => setFiltersOpen(true));
+  els.filterButton.addEventListener("click", () => setFiltersOpen(!state.filtersOpen));
   els.closeFilters.addEventListener("click", () => setFiltersOpen(false));
   els.searchInput.addEventListener("input", (event) => {
     state.search = event.target.value.trim().toLowerCase();
