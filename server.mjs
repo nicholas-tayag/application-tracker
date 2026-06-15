@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
-import { extname, join, normalize } from "node:path";
+import { extname, isAbsolute, join, normalize, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
@@ -14,12 +14,17 @@ const types = {
   ".json": "application/json; charset=utf-8"
 };
 
+function isPathInsideRoot(candidate) {
+  const rel = relative(root, candidate);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
 const handler = (req, res) => {
   const url = new URL(req.url || "/", `http://localhost:${currentPort}`);
   const requested = url.pathname === "/" ? "/index.html" : decodeURIComponent(url.pathname);
   const file = normalize(join(root, requested));
 
-  if (!file.startsWith(root) || !existsSync(file) || statSync(file).isDirectory()) {
+  if (!isPathInsideRoot(file) || !existsSync(file) || statSync(file).isDirectory()) {
     res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
     res.end("Not found");
     return;
