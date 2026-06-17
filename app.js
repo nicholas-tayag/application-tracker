@@ -78,6 +78,7 @@ const DREAM_COMPANIES = [
   "Capital One",
   "IBM"
 ];
+const savedRankingMode = loadJson("ng_ranking_mode", "balanced");
 const state = {
   roles: [],
   selectedId: null,
@@ -95,8 +96,8 @@ const state = {
   sort: "score",
   filtersOpen: false,
   focusOpen: loadJson("ng_focus_open", false),
-  locationPreference: "flexible",
-  rankingMode: loadJson("ng_ranking_mode", "balanced"),
+  locationPreference: loadJson("ng_location_preference", RANKING_MODES[savedRankingMode]?.locationPreference || "flexible"),
+  rankingMode: savedRankingMode,
   weights: loadJson("ng_weights", DEFAULT_WEIGHTS),
   tracker: loadJson("ng_tracker", {})
 };
@@ -136,6 +137,7 @@ const els = {
 init();
 
 async function init() {
+  els.locationPreference.value = state.locationPreference;
   renderWeights();
   bindEvents();
   const batches = await Promise.all(DATASETS.map(loadDataset));
@@ -190,6 +192,7 @@ function bindEvents() {
   });
   els.locationPreference.addEventListener("change", (event) => {
     state.locationPreference = event.target.value;
+    saveJson("ng_location_preference", state.locationPreference);
     renderListAndMetrics(true);
   });
   els.resetWeights.addEventListener("click", () => {
@@ -199,6 +202,7 @@ function bindEvents() {
     els.locationPreference.value = "flexible";
     saveJson("ng_ranking_mode", state.rankingMode);
     saveJson("ng_weights", state.weights);
+    saveJson("ng_location_preference", state.locationPreference);
     renderWeights();
     renderListAndMetrics(true);
   });
@@ -353,6 +357,7 @@ function renderWeights() {
       els.locationPreference.value = mode.locationPreference;
       saveJson("ng_ranking_mode", state.rankingMode);
       saveJson("ng_weights", state.weights);
+      saveJson("ng_location_preference", state.locationPreference);
       renderWeights();
       renderListAndMetrics(true);
     });
