@@ -19,9 +19,23 @@ function isPathInsideRoot(candidate) {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
+function decodePathname(pathname) {
+  try {
+    return decodeURIComponent(pathname);
+  } catch {
+    return null;
+  }
+}
+
 const handler = (req, res) => {
   const url = new URL(req.url || "/", `http://localhost:${currentPort}`);
-  const requested = url.pathname === "/" ? "/index.html" : decodeURIComponent(url.pathname);
+  const decodedPath = url.pathname === "/" ? "/index.html" : decodePathname(url.pathname);
+  if (!decodedPath) {
+    res.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
+    res.end("Bad request");
+    return;
+  }
+  const requested = decodedPath;
   const file = normalize(join(root, requested));
 
   if (!isPathInsideRoot(file) || !existsSync(file) || statSync(file).isDirectory()) {
