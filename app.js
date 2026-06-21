@@ -852,12 +852,15 @@ function scoreCompany(company) {
 }
 
 function scoreFreshness(posted) {
+  const days = jobAgeDays(posted);
+  if (Number.isFinite(days)) {
+    if (days <= 3) return 92;
+    if (days <= 14) return 78;
+    if (days <= 31) return 60;
+    return 42;
+  }
   const text = String(posted || "").toLowerCase();
   if (!text) return 52;
-  if (/\d+d/.test(text)) return 90;
-  if (/\d+w/.test(text)) return 72;
-  if (/\d+mo/.test(text)) return 46;
-  if (/2026|2025/.test(text)) return 58;
   return 55;
 }
 
@@ -980,23 +983,28 @@ function jobAgeLabel(role) {
 function jobAgeDays(posted) {
   const text = String(posted || "").trim().toLowerCase();
   if (!text) return NaN;
-  if (/today|yesterday/.test(text)) return text.includes("yesterday") ? 1 : 0;
-  const dayMatch = text.match(/(\d+)\s*d/);
-  if (dayMatch) return Number(dayMatch[1]);
-  const weekMatch = text.match(/(\d+)\s*w/);
-  if (weekMatch) return Number(weekMatch[1]) * 7;
-  const monthMatch = text.match(/(\d+)\s*mo/);
-  if (monthMatch) return Number(monthMatch[1]) * 30;
-  const isoMatch = text.match(/20\d{2}-\d{2}-\d{2}/);
-  if (isoMatch) {
-    const postedDate = new Date(`${isoMatch[0]}T00:00:00`);
-    if (Number.isFinite(postedDate.getTime())) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      return Math.max(0, Math.round((today.getTime() - postedDate.getTime()) / 86400000));
-    }
-  }
-  return NaN;
+  const matches = [];
+  if (text.includes("today")) matches.push(0);
+  if (text.includes("yesterday")) matches.push(1);
+
+  [...text.matchAll(/(\d+)\s*d(?:ay)?s?\b/g)].forEach((match) => {
+    matches.push(Number(match[1]));
+  });
+  [...text.matchAll(/(\d+)\s*w(?:eek)?s?\b/g)].forEach((match) => {
+    matches.push(Number(match[1]) * 7);
+  });
+  [...text.matchAll(/(\d+)\s*mo(?:nth)?s?\b/g)].forEach((match) => {
+    matches.push(Number(match[1]) * 30);
+  });
+  [...text.matchAll(/20\d{2}-\d{2}-\d{2}/g)].forEach((match) => {
+    const postedDate = new Date(`${match[0]}T00:00:00`);
+    if (!Number.isFinite(postedDate.getTime())) return;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    matches.push(Math.max(0, Math.round((today.getTime() - postedDate.getTime()) / 86400000)));
+  });
+
+  return matches.length ? Math.min(...matches) : NaN;
 }
 
 function parseCsv(text) {
