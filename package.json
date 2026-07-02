@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "test": "node --test",
+    "check": "node --check server.mjs && node --check app.js && node --check lib/tracker-core.mjs && node --check lib/tracker-store.mjs && node --check lib/application-agent.mjs && node --check lib/application-agent-store.mjs && node --check lib/form-autofill.mjs && node --check lib/outcome-monitor.mjs && node --check lib/project-status.mjs && node --check lib/resume-agent.mjs && node --check lib/job-application-pipeline.mjs && node --check extension/content.js && node --check extension/popup.js && node --check benchmarks/run-benchmark.mjs && node --check scripts/audit-import.mjs && node --check scripts/generate-tailoring-brief.mjs",
+    "benchmark": "node benchmarks/run-benchmark.mjs",
+    "import:audit": "node scripts/audit-import.mjs",
+    "tailoring:brief": "node scripts/generate-tailoring-brief.mjs"
   }
 }

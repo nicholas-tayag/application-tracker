@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "project": "application-tracker",
+  "updatedAt": "2026-06-22T20:00:00.000Z",
+  "registryType": "explicit_checkpoint_registry",
+  "liveIntrospection": false,
+  "note": "Update this registry at integration checkpoints or automation runs. It does not inspect live agents.",
+  "workstreams": [
+    {
+      "id": "foundation",
+      "name": "Foundation",
+      "description": "Persistence, privacy, and verified role data.",
+      "tasks": [
+        {
+          "id": "security-and-storage",
+          "name": "Security and private storage",
+          "owner": "integration",
+          "status": "completed",
+          "progress": 100,
+          "currentStep": "Complete",
+          "lastUpdate": "2026-06-22T20:00:00.000Z",
+          "verificationSummary": "Static allowlist and private state-path tests pass.",
+          "blocker": "",
+          "completedDeliverables": ["Static file allowlist", "Private local state storage"]
+        },
+        {
+          "id": "direct-link-catalog",
+          "name": "Direct-link role catalog",
+          "owner": "catalog",
+          "status": "completed",
+          "progress": 100,
+          "currentStep": "Complete",
+          "lastUpdate": "2026-06-22T20:00:00.000Z",
+          "verificationSummary": "100 unique employer or ATS links passed the catalog audit.",
+          "blocker": "",
+          "completedDeliverables": ["SimplifyJobs catalog import", "Direct-link audit"]
+        }
+      ]
+    },
+    {
+      "id": "workflow",
+      "name": "Application workflow",
+      "description": "Human-reviewed application preparation and outcome tracking.",
+      "tasks": [
+        {
+          "id": "safe-application-agent",
+          "name": "Safe application preparation",
+          "owner": "workflow",
+          "status": "completed",
+          "progress": 100,
+          "currentStep": "Complete",
+          "lastUpdate": "2026-06-22T20:00:00.000Z",
+          "verificationSummary": "Packages and autofill plans require direct URLs and never submit.",
+          "blocker": "",
+          "completedDeliverables": ["Application packages", "Batch preparation", "Four-check review gate", "Plan-only autofill", "Outcome history"]
+        },
+        {
+          "id": "historical-baseline",
+          "name": "Historical application baseline",
+          "owner": "analytics",
+          "status": "blocked",
+          "progress": 65,
+          "currentStep": "Waiting for a complete Simplify export to calculate unbiased rates.",
+          "lastUpdate": "2026-06-22T20:00:00.000Z",
+          "verificationSummary": "Gmail cross-check logged lower bounds: 2 OA roles, 1 interview process, and at least 23 rejection/closure emails.",
+          "blocker": "The Simplify CSV has headers only, so the submitted-application denominator is unavailable.",
+          "completedDeliverables": ["Conversion metrics", "Outcome hypotheses", "Private provisional baseline"]
+        }
+      ]
+    },
+    {
+      "id": "experience",
+      "name": "Daily experience",
+      "description": "Usable command center and transparent local automation status.",
+      "tasks": [
+        {
+          "id": "command-center-ui",
+          "name": "Command center UI",
+          "owner": "ui",
+          "status": "completed",
+          "progress": 100,
+          "currentStep": "Complete",
+          "lastUpdate": "2026-06-22T20:00:00.000Z",
+          "verificationSummary": "Desktop and 390px mobile role browsing passed browser verification.",
+          "blocker": "",
+          "completedDeliverables": ["Desktop command center", "Responsive role list", "Project progress panel"]
+        },
+        {
+          "id": "resume-scanner",
+          "name": "Resume quality scanner",
+          "owner": "resume",
+          "status": "completed",
+          "progress": 100,
+          "currentStep": "Dormant until a new resume is provided.",
+          "lastUpdate": "2026-06-22T20:00:00.000Z",
+          "verificationSummary": "Deterministic, analysis-only rubric with content-hash cache.",
+          "blocker": "",
+          "completedDeliverables": ["Transparent 100-point rubric", "Evidence guardrails", "Hash-based skip"]
+        }
+      ]
+    }
+  ]
+}

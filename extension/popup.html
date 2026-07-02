@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Apply Safe Autofill</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <strong>Apply Safe Autofill</strong>
+        <span>Local · never submits</span>
+      </header>
+      <section id="status" class="status">Connect to the tracker, then review this page.</section>
+      <details>
+        <summary>Local candidate profile</summary>
+        <div class="fields">
+          <input id="fullName" placeholder="Full name" />
+          <input id="email" type="email" placeholder="Email" />
+          <input id="phone" placeholder="Phone" />
+          <input id="location" placeholder="City, state" />
+          <input id="linkedin" placeholder="LinkedIn URL" />
+          <input id="github" placeholder="GitHub URL" />
+        </div>
+        <button id="saveProfile" class="secondary">Save locally</button>
+      </details>
+      <button id="analyze">Review and fill safe fields</button>
+      <div id="result"></div>
+      <p class="boundary">Resume uploads, authorization, sponsorship, salary, legal consent, demographics, narrative answers, CAPTCHA, and final submission remain manual.</p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

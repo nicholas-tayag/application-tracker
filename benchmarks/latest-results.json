@@ -1,0 +1,45 @@
+{
+  "generatedAt": "2026-06-22T14:15:55.100Z",
+  "environment": {
+    "node": "v24.14.0",
+    "platform": "darwin-arm64"
+  },
+  "catalog": {
+    "csvRowsLoaded": 100,
+    "uniqueRolesAfterCompanyTitleLocationDeduplication": 100,
+    "duplicatesRemoved": 0,
+    "sourceFiles": [
+      "data/selected_roles.csv",
+      "data/newgrad_best_adds.csv",
+      "data/aiml_best_roles.csv"
+    ]
+  },
+  "csvImport": {
+    "matchingRows": 100,
+    "imported": 100,
+    "unmatched": 1,
+    "skipped": 0,
+    "expectedUnmatched": 1
+  },
+  "analytics": {
+    "records": 10000,
+    "iterations": 100,
+    "medianMs": 7.417,
+    "p95Ms": 14.833,
+    "submitted": 10000,
+    "positives": 6000
+  },
+  "persistence": {
+    "concurrentWrites": 100,
+    "completedWrites": 100,
+    "validJsonAfterWrites": true,
+    "finalTrackerEntries": 1,
+    "durationMs": 25.999
+  },
+  "limitations": [
+    "Catalog counts describe the repository CSV snapshots, not live or still-open jobs.",
+    "Analytics timings use deterministic synthetic tracker records on one local machine.",
+    "Concurrent writes validate serialized atomic JSON persistence, not multi-host coordination.",
+    "Import correctness covers exact company/title/location matching and does not infer fuzzy matches."
+  ]
+}

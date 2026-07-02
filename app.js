@@ -1,3 +1,9 @@
+import {
+  importTrackerCsv,
+  normalizeTracker,
+  trackerMetrics
+} from "./lib/tracker-core.mjs";
+
 const DATASETS = [
   { file: "./data/selected_roles.csv", source: "core", label: "Core 100" },
   { file: "./data/newgrad_best_adds.csv", source: "newgrad", label: "More finds" },
@@ -46,7 +52,18 @@ const RANKING_MODES = {
   }
 };
 
-const STATUS_OPTIONS = ["Saved", "Applying", "Applied", "Interviewing", "Rejected"];
+const STATUS_OPTIONS = [
+  "Discovered",
+  "Saved",
+  "Applying",
+  "Applied",
+  "OA",
+  "Recruiter Screen",
+  "Interviewing",
+  "Rejected",
+  "Offer",
+  "Withdrawn"
+];
 const STATE_NAMES = {
   alabama: "AL", alaska: "AK", arizona: "AZ", arkansas: "AR", california: "CA", colorado: "CO",
   connecticut: "CT", delaware: "DE", florida: "FL", georgia: "GA", hawaii: "HI", idaho: "ID",
@@ -79,6 +96,7 @@ const DREAM_COMPANIES = [
   "IBM"
 ];
 const savedRankingMode = loadJson("ng_ranking_mode", "balanced");
+const SAVED_PIPELINE_RESUME_KEY = "ng_job_pipeline_resume_text";
 const state = {
   roles: [],
   selectedId: null,
@@ -99,7 +117,28 @@ const state = {
   locationPreference: loadJson("ng_location_preference", RANKING_MODES[savedRankingMode]?.locationPreference || "flexible"),
   rankingMode: savedRankingMode,
   weights: loadJson("ng_weights", DEFAULT_WEIGHTS),
-  tracker: loadJson("ng_tracker", {})
+  tracker: loadJson("ng_tracker", {}),
+  revision: 0,
+  persistence: "loading",
+  saveChain: Promise.resolve(),
+  agent: {
+    applications: {},
+    metrics: {},
+    outcomeAnalytics: {},
+    improvementHypotheses: {},
+    revision: 0,
+    loading: true
+  },
+  jobPipeline: {
+    loading: false,
+    result: null,
+    error: ""
+  },
+  projectStatus: {
+    registry: { workstreams: [] },
+    summary: {},
+    loading: true
+  }
 };
 
 const els = {
@@ -131,23 +170,60 @@ const els = {
   locationPreference: document.querySelector("#locationPreference"),
   resetWeights: document.querySelector("#resetWeights"),
   clearFilters: document.querySelector("#clearFilters"),
-  exportButton: document.querySelector("#exportButton")
+  exportButton: document.querySelector("#exportButton"),
+  importButton: document.querySelector("#importButton"),
+  importInput: document.querySelector("#importInput"),
+  persistenceStatus: document.querySelector("#persistenceStatus"),
+  agentMetrics: document.querySelector("#agentMetrics"),
+  agentQueue: document.querySelector("#agentQueue"),
+  prepareNextRoles: document.querySelector("#prepareNextRoles"),
+  jobPipelineForm: document.querySelector("#jobPipelineForm"),
+  jobPipelineUrl: document.querySelector("#jobPipelineUrl"),
+  jobPipelineMaster: document.querySelector("#jobPipelineMaster"),
+  jobPipelineDescription: document.querySelector("#jobPipelineDescription"),
+  jobPipelineResume: document.querySelector("#jobPipelineResume"),
+  pipelineResumeFile: document.querySelector("#pipelineResumeFile"),
+  uploadPipelineResume: document.querySelector("#uploadPipelineResume"),
+  savePipelineResume: document.querySelector("#savePipelineResume"),
+  clearPipelineResume: document.querySelector("#clearPipelineResume"),
+  pipelineResumeStatus: document.querySelector("#pipelineResumeStatus"),
+  jobPipelineResult: document.querySelector("#jobPipelineResult"),
+  projectProgressSummary: document.querySelector("#projectProgressSummary"),
+  projectWorkstreams: document.querySelector("#projectWorkstreams")
 };
 
 init();
 
 async function init() {
   els.locationPreference.value = state.locationPreference;
+  hydrateSavedPipelineResume();
   renderWeights();
   bindEvents();
   const batches = await Promise.all(DATASETS.map(loadDataset));
   state.roles = dedupeRoles(batches.flat()).map(enrichRole);
+  await Promise.all([
+    loadPersistentTracker(),
+    loadApplicationAgent(),
+    loadProjectStatus()
+  ]);
   renderStateFilter();
   state.selectedId = sortedFilteredRoles()[0]?.id || null;
   render();
 }
 
 function bindEvents() {
+  els.prepareNextRoles?.addEventListener("click", prepareNextRoles);
+  els.jobPipelineForm?.addEventListener("submit", scanJobPipeline);
+  els.jobPipelineResult?.addEventListener("click", handleJobPipelineResultClick);
+  els.uploadPipelineResume?.addEventListener("click", () => els.pipelineResumeFile?.click());
+  els.pipelineResumeFile?.addEventListener("change", loadPipelineResumeFile);
+  els.savePipelineResume?.addEventListener("click", savePipelineResumeText);
+  els.clearPipelineResume?.addEventListener("click", clearPipelineResumeText);
+  els.jobPipelineResume?.addEventListener("input", () => {
+    if (els.pipelineResumeStatus) {
+      els.pipelineResumeStatus.textContent = "Unsaved local resume changes";
+    }
+  });
   els.filterButton.addEventListener("click", () => setFiltersOpen(!state.filtersOpen));
   els.closeFilters.addEventListener("click", () => setFiltersOpen(false));
   els.searchInput.addEventListener("input", (event) => {
@@ -234,6 +310,8 @@ function bindEvents() {
     renderDreamJobs();
   });
   els.exportButton.addEventListener("click", exportTracker);
+  els.importButton.addEventListener("click", () => els.importInput.click());
+  els.importInput.addEventListener("change", importTrackerFile);
   els.sourceFilter.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-source]");
     if (!button) return;
@@ -259,6 +337,7 @@ function normalizeRole(row, dataset) {
   const fitScore = Number(row["Fit score"] || 0);
   const salary = row.Salary || "";
   const why = row["Why you fit"] || row["Why it fits your resume"] || "";
+  const qualifications = row["Qualifications excerpt"] || "";
   const posted = row["Posted/Age"] || row["Posted date"] || "";
   const sourceLabel = dataset.label;
 
@@ -275,6 +354,8 @@ function normalizeRole(row, dataset) {
     salary,
     posted,
     why,
+    qualifications,
+    description: [why, qualifications].filter(Boolean).join("\n"),
     fitScore,
     raw: row
   };
@@ -286,7 +367,7 @@ function enrichRole(role) {
   const payScore = scorePay(pay);
   const locationScore = scoreLocation(role.location);
   const fitScore = scoreFit(role);
-  const chanceScore = { Higher: 100, Medium: 67, Lower: 38 }[role.chance] || 55;
+  const chanceScore = { Higher: 100, Medium: 67, Lower: 38, Unknown: 50 }[role.chance] || 50;
   const companyScore = scoreCompany(role.company);
   const freshnessScore = scoreFreshness(role.posted);
   const total = weightedScore({ payScore, locationScore, fitScore, chanceScore, companyScore, freshnessScore });
@@ -325,6 +406,9 @@ function renderListAndMetrics(recalculate = false) {
   renderTagFilters();
   renderDreamJobs();
   renderStatusSummary();
+  renderJobPipeline();
+  renderAgentOverview();
+  renderProjectStatus();
   renderList();
   renderDetails();
 }
@@ -406,21 +490,120 @@ function renderTagFilters() {
 
 function renderMetrics() {
   const roles = filteredRoles();
-  const applied = state.roles.filter((role) => getStatus(role) === "Applied").length;
-  const interviewing = state.roles.filter((role) => getStatus(role) === "Interviewing").length;
+  const funnel = trackerMetrics(state.tracker);
   const top = sortedFilteredRoles()[0];
   els.metrics.innerHTML = [
     ["Visible roles", roles.length],
-    ["Applied", applied],
-    ["Interviewing", interviewing],
-    ["Top score", top ? `${top.scores.total}/100` : "n/a"],
-    ["Tracked states", countStates(roles)]
+    ["Submitted", funnel.submitted],
+    ["OA / screens", `${funnel.positives} (${percent(funnel.oaScreenRate)})`],
+    ["Median response", funnel.medianResponseDays === null ? "n/a" : `${funnel.medianResponseDays}d`],
+    ["Follow-ups due", funnel.followUpsDue],
+    ["Top score", top ? `${top.scores.total}/100` : "n/a"]
   ].map(([label, value]) => `
     <div class="metric">
       <span>${label}</span>
       <strong>${value}</strong>
     </div>
   `).join("");
+}
+
+function renderAgentOverview() {
+  if (!els.agentMetrics || !els.agentQueue) return;
+  const metrics = state.agent.metrics || {};
+  const outcome = state.agent.outcomeAnalytics?.overall || {};
+  const submitted = Number(outcome.submitted || 0);
+  els.agentMetrics.innerHTML = [
+    ["Ready for review", metrics.readyForReview || 0],
+    ["Approved", metrics.approvedForManualSubmit || 0],
+    ["Submitted", submitted || metrics.submitted || 0],
+    ["OA / assessment", submitted
+      ? `${formatRate(outcome.oa?.percent)} · ${formatLift(outcome.oa?.percentagePointLift)}`
+      : "Baseline 6.33%"],
+    ["Interview", submitted
+      ? `${formatRate(outcome.interview?.percent)} · ${formatLift(outcome.interview?.percentagePointLift)}`
+      : "Baseline 1.27%"],
+    ["Stale", metrics.stale || 0]
+  ].map(([label, value]) => `
+    <div class="agent-metric">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </div>
+  `).join("");
+
+  const applications = Object.values(state.agent.applications || {})
+    .sort((a, b) => Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0))
+    .slice(0, 5);
+  els.agentQueue.innerHTML = applications.length
+    ? applications.map((application) => `
+      <button class="agent-queue-item" type="button" data-role-id="${escapeAttribute(application.roleId)}">
+        <span>${escapeHtml(application.company)}</span>
+        <strong>${escapeHtml(application.role)}</strong>
+        <small>${escapeHtml(application.stage.replaceAll("_", " "))} · ${application.masterResume.toUpperCase()}</small>
+      </button>
+    `).join("")
+    : `<div class="agent-queue-empty">No prepared applications yet. Select a direct-link role to build one.</div>`;
+  els.agentQueue.querySelectorAll(".agent-queue-item").forEach((button) => {
+    button.addEventListener("click", () => {
+      const role = state.roles.find((item) => item.id === button.dataset.roleId);
+      if (!role) return;
+      state.selectedId = role.id;
+      renderList();
+      renderDetails();
+    });
+  });
+}
+
+function renderProjectStatus() {
+  if (!els.projectProgressSummary || !els.projectWorkstreams) return;
+  const summary = state.projectStatus.summary || {};
+  const workstreams = state.projectStatus.registry?.workstreams || [];
+  els.projectProgressSummary.innerHTML = `
+    <div>
+      <span>Overall progress</span>
+      <strong>${Number(summary.overallProgress || 0).toFixed(0)}%</strong>
+    </div>
+    <div>
+      <span>Running</span>
+      <strong>${summary.counts?.running || 0}</strong>
+    </div>
+    <div>
+      <span>Blocked</span>
+      <strong>${summary.counts?.blocked || 0}</strong>
+    </div>
+  `;
+  els.projectWorkstreams.innerHTML = workstreams.map((workstream) => {
+    const tasks = workstream.tasks || [];
+    const progress = tasks.length
+      ? tasks.reduce((sum, task) => sum + Number(task.progress || 0), 0) / tasks.length
+      : 0;
+    const active = tasks.find((task) => task.status === "running") ||
+      tasks.find((task) => task.status === "blocked") ||
+      tasks[0];
+    return `
+      <article class="project-workstream">
+        <div class="project-workstream-heading">
+          <strong>${escapeHtml(workstream.name)}</strong>
+          <span>${Math.round(progress)}%</span>
+        </div>
+        <div class="project-progress-track"><span style="width:${Math.max(0, Math.min(100, progress))}%"></span></div>
+        <small>${escapeHtml(active?.currentStep || active?.verificationSummary || "No active step")}</small>
+      </article>
+    `;
+  }).join("") || `<div class="agent-queue-empty">No project checkpoints recorded.</div>`;
+}
+
+async function loadProjectStatus() {
+  try {
+    const response = await fetch("/api/project-status", { cache: "no-store" });
+    if (!response.ok) throw new Error(`project status returned ${response.status}`);
+    state.projectStatus = {
+      ...(await response.json()),
+      loading: false
+    };
+  } catch {
+    state.projectStatus.loading = false;
+  }
+  renderProjectStatus();
 }
 
 function renderStatusSummary() {
@@ -562,6 +745,7 @@ function renderDetails() {
   }
 
   const tracker = state.tracker[role.id] || {};
+  const agentApplication = findAgentApplication(role);
   const age = jobAgeLabel(role) || "Age unknown";
   const due = deadlineLabel(role) || "No deadline set";
   els.details.innerHTML = `
@@ -579,6 +763,7 @@ function renderDetails() {
         <div><span>Due</span><strong>${escapeHtml(due)}</strong></div>
       </div>
       ${role.url ? `<a class="link-button" href="${escapeAttribute(role.url)}" target="_blank" rel="noreferrer">Open application</a>` : ""}
+      ${isAggregatorUrl(role.url) ? `<p class="link-warning">Aggregator link. Wait for a verified direct employer link before applying.</p>` : ""}
     </div>
 
     <section class="detail-section compact-detail">
@@ -601,12 +786,20 @@ function renderDetails() {
     </section>
 
     <section class="detail-section">
+      <h4>Application Agent</h4>
+      <div class="agent-card">
+        ${renderAgentApplication(role, agentApplication)}
+      </div>
+    </section>
+
+    <section class="detail-section">
       <h4>Track This Application</h4>
       <div class="status-form">
         <select id="detailStatus">
           ${STATUS_OPTIONS.map((status) => `<option value="${status}" ${getStatus(role) === status ? "selected" : ""}>${status}</option>`).join("")}
         </select>
         <input id="detailDate" type="date" value="${escapeAttribute(tracker.date || "")}" />
+        <input id="detailResponseDate" type="date" value="${escapeAttribute(tracker.responseDate || "")}" aria-label="First response date" />
         <input id="detailDeadline" type="date" value="${escapeAttribute(tracker.deadline || "")}" aria-label="Application deadline" />
         <input id="detailFollowUp" type="date" value="${escapeAttribute(tracker.followUp || "")}" aria-label="Follow-up date" />
         <input id="detailResume" type="text" value="${escapeAttribute(tracker.resumeVersion || "")}" placeholder="Resume version used" />
@@ -624,22 +817,572 @@ function renderDetails() {
 
   document.querySelector("#detailStatus").addEventListener("change", () => saveDetail(role.id, true));
   document.querySelector("#detailDate").addEventListener("change", () => saveDetail(role.id, true));
+  document.querySelector("#detailResponseDate").addEventListener("change", () => saveDetail(role.id, true));
   document.querySelector("#detailDeadline").addEventListener("change", () => saveDetail(role.id, true));
   document.querySelector("#detailFollowUp").addEventListener("change", () => saveDetail(role.id, true));
   document.querySelector("#detailResume").addEventListener("blur", () => saveDetail(role.id, true));
   document.querySelector("#detailNotes").addEventListener("blur", () => saveDetail(role.id, true));
+  document.querySelector("#prepareApplication")?.addEventListener("click", () =>
+    prepareApplicationPackage(role)
+  );
+  document.querySelector("#agentOutcome")?.addEventListener("change", (event) =>
+    recordAgentOutcome(agentApplication?.id, event.target.value)
+  );
+  document.querySelector("#approveApplication")?.addEventListener("click", () =>
+    reviewAgentApplication(agentApplication)
+  );
 }
 
-function saveDetail(id, rerender = false) {
+function renderAgentApplication(role, application) {
+  if (state.agent.loading) return `<p>Loading application agent…</p>`;
+  if (!application) {
+    const disabled = !role.url || isAggregatorUrl(role.url);
+    return `
+      <p>Build a review package from the best master resume, job keywords, and verified claims.</p>
+      <button id="prepareApplication" class="primary-button" type="button" ${disabled ? "disabled" : ""}>
+        Prepare application
+      </button>
+      ${disabled ? `<small>A verified direct employer/ATS link is required.</small>` : ""}
+    `;
+  }
+  const claims = application.analysis?.matchedClaims || [];
+  const blockers = application.analysis?.blockers || [];
+  const review = application.review || {};
+  const approved = application.stage === "approved_for_manual_submit";
+  return `
+    <div class="agent-status-row">
+      <span class="pill">${escapeHtml(application.stage.replaceAll("_", " "))}</span>
+      <strong>${application.masterResume === "ai" ? "AI Engineer" : "General SWE"} master</strong>
+    </div>
+    <p>${escapeHtml(application.analysis?.rationale || "")}</p>
+    <div class="agent-columns">
+      <div>
+        <span>Claims to emphasize</span>
+        <ul>${claims.slice(0, 4).map((item) => `<li>${escapeHtml(item.text)}</li>`).join("") || "<li>Review manually</li>"}</ul>
+      </div>
+      <div>
+        <span>Eligibility flags</span>
+        <ul>${blockers.map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>No automatic blockers detected</li>"}</ul>
+      </div>
+    </div>
+    <label class="field">
+      <span>Record outcome</span>
+      <select id="agentOutcome">
+        ${["ready_for_review", "approved_for_manual_submit", "submitted", "assessment", "screen", "interview", "offer", "rejected", "withdrawn", "failed"]
+          .map((stage) => agentStageOption(stage, application))
+          .join("")}
+      </select>
+    </label>
+    <div class="review-checklist">
+      ${reviewCheck("resumeReviewed", "Resume selected and file verified", review.resumeReviewed)}
+      ${reviewCheck("claimsReviewed", "Claims are truthful and supported", review.claimsReviewed)}
+      ${reviewCheck("eligibilityReviewed", "Eligibility and sponsorship answers reviewed", review.eligibilityReviewed)}
+      ${reviewCheck("locationReviewed", "Location and onsite expectations reviewed", review.locationReviewed)}
+      <button id="approveApplication" class="${approved ? "ghost-button" : "primary-button"}" type="button">
+        ${approved ? "Reopen review" : "Approve for manual submit"}
+      </button>
+    </div>
+    ${application.artifactUrl
+      ? `<a class="agent-package-link" href="${escapeAttribute(application.artifactUrl)}" target="_blank">Open local review package</a>`
+      : application.artifactPath
+        ? `<small>Local review package: ${escapeHtml(application.artifactPath)}</small>`
+        : ""}
+    <p class="agent-review-note">Final submission always requires your review.</p>
+  `;
+}
+
+function reviewCheck(id, label, checked) {
+  return `<label class="review-check"><input id="${id}" type="checkbox" ${checked ? "checked" : ""} /> <span>${escapeHtml(label)}</span></label>`;
+}
+
+function agentStageOption(stage, application) {
+  const requiresApproval = ["submitted", "assessment", "screen", "interview", "offer"].includes(stage);
+  const blocked = requiresApproval &&
+    ["draft", "ready_for_review"].includes(application.stage);
+  return `<option value="${stage}" ${application.stage === stage ? "selected" : ""} ${blocked ? "disabled" : ""}>${stage.replaceAll("_", " ")}</option>`;
+}
+
+function findAgentApplication(role) {
+  return Object.values(state.agent.applications || {}).find((application) =>
+    application.roleId === role.id ||
+    (application.company === role.company && application.role === role.role)
+  );
+}
+
+async function loadApplicationAgent() {
+  try {
+    const response = await fetch("/api/application-agent", { cache: "no-store" });
+    if (!response.ok) throw new Error(`application agent returned ${response.status}`);
+    const payload = await response.json();
+    state.agent = {
+      applications: payload.applications || {},
+      metrics: payload.metrics || {},
+      outcomeAnalytics: payload.outcomeAnalytics || {},
+      improvementHypotheses: payload.improvementHypotheses || {},
+      revision: Number(payload.revision || 0),
+      loading: false
+    };
+    renderAgentOverview();
+  } catch {
+    state.agent.loading = false;
+  }
+}
+
+async function prepareApplicationPackage(role) {
+  const button = document.querySelector("#prepareApplication");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Preparing…";
+  }
+  try {
+    const response = await fetch("/api/application-agent/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        role: {
+          id: role.id,
+          company: role.company,
+          role: role.role,
+          location: role.location,
+          url: role.url,
+          sourceUrl: role.url,
+          fitTrack: role.fitTrack,
+          why: role.why,
+          qualifications: role.qualifications,
+          description: role.description
+        }
+      })
+    });
+    if (!response.ok) throw new Error(`prepare returned ${response.status}`);
+    const payload = await response.json();
+    state.agent.applications[payload.application.id] = payload.application;
+    state.agent.metrics = payload.metrics;
+    state.agent.outcomeAnalytics = payload.outcomeAnalytics || state.agent.outcomeAnalytics;
+    renderAgentOverview();
+    renderDetails();
+  } catch {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Prepare application";
+    }
+  }
+}
+
+async function prepareNextRoles() {
+  const button = els.prepareNextRoles;
+  const preparedRoleIds = new Set(
+    Object.values(state.agent.applications || {}).map((application) => application.roleId)
+  );
+  const candidates = sortedFilteredRoles()
+    .filter((role) => role.url && !isAggregatorUrl(role.url) && !preparedRoleIds.has(role.id))
+    .slice(0, 3);
+  if (!candidates.length || !button) return;
+  button.disabled = true;
+  button.textContent = "Preparing…";
+  for (const role of candidates) await prepareApplicationPackage(role);
+  button.disabled = false;
+  button.textContent = "Prepare next 3";
+}
+
+async function scanJobPipeline(event) {
+  event?.preventDefault();
+  if (!els.jobPipelineResult) return;
+  const jobUrl = els.jobPipelineUrl?.value.trim() || "";
+  const jobDescription = els.jobPipelineDescription?.value.trim() || "";
+  if (!jobUrl && !jobDescription) {
+    state.jobPipeline = {
+      loading: false,
+      result: null,
+      error: "Paste a job link or job description first."
+    };
+    renderJobPipeline();
+    return;
+  }
+  state.jobPipeline = { loading: true, result: null, error: "" };
+  renderJobPipeline();
+  try {
+    const response = await fetch("/api/job-pipeline/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jobUrl,
+        jobDescription,
+        masterResume: els.jobPipelineMaster?.value || "",
+        resumeText: els.jobPipelineResume?.value || ""
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.fallback || payload.error || `Scan failed with ${response.status}`);
+    }
+    state.jobPipeline = { loading: false, result: payload, error: "" };
+  } catch (error) {
+    state.jobPipeline = {
+      loading: false,
+      result: null,
+      error: error.message || "Could not scan this job."
+    };
+  }
+  renderJobPipeline();
+}
+
+function hydrateSavedPipelineResume() {
+  const saved = localStorage.getItem(SAVED_PIPELINE_RESUME_KEY) || "";
+  if (saved && els.jobPipelineResume) {
+    els.jobPipelineResume.value = saved;
+    if (els.pipelineResumeStatus) {
+      els.pipelineResumeStatus.textContent = "Loaded saved resume text locally";
+    }
+  }
+}
+
+function savePipelineResumeText() {
+  const value = els.jobPipelineResume?.value || "";
+  if (!value.trim()) {
+    if (els.pipelineResumeStatus) {
+      els.pipelineResumeStatus.textContent = "Paste resume text before saving";
+    }
+    return;
+  }
+  localStorage.setItem(SAVED_PIPELINE_RESUME_KEY, value);
+  if (els.pipelineResumeStatus) {
+    els.pipelineResumeStatus.textContent = `Saved locally · ${value.trim().split(/\s+/).length} words`;
+  }
+}
+
+function clearPipelineResumeText() {
+  localStorage.removeItem(SAVED_PIPELINE_RESUME_KEY);
+  if (els.jobPipelineResume) els.jobPipelineResume.value = "";
+  if (els.pipelineResumeStatus) {
+    els.pipelineResumeStatus.textContent = "Saved resume cleared from this browser";
+  }
+}
+
+async function loadPipelineResumeFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (file.size > 512 * 1024) {
+    if (els.pipelineResumeStatus) {
+      els.pipelineResumeStatus.textContent = "Resume file is too large for local scan";
+    }
+    return;
+  }
+  try {
+    const text = await file.text();
+    if (els.jobPipelineResume) els.jobPipelineResume.value = text;
+    localStorage.setItem(SAVED_PIPELINE_RESUME_KEY, text);
+    if (els.pipelineResumeStatus) {
+      els.pipelineResumeStatus.textContent = `Loaded ${file.name} locally · saved for next scan`;
+    }
+  } catch {
+    if (els.pipelineResumeStatus) {
+      els.pipelineResumeStatus.textContent = "Could not read that resume file";
+    }
+  } finally {
+    event.target.value = "";
+  }
+}
+
+function renderJobPipeline() {
+  if (!els.jobPipelineResult) return;
+  if (state.jobPipeline.loading) {
+    els.jobPipelineResult.innerHTML = `
+      <div class="pipeline-loading">Scanning job description and building handbook checklist…</div>
+    `;
+    return;
+  }
+  if (state.jobPipeline.error) {
+    els.jobPipelineResult.innerHTML = `
+      <div class="pipeline-error">
+        <strong>Scan needs a fallback</strong>
+        <p>${escapeHtml(state.jobPipeline.error)}</p>
+      </div>
+    `;
+    return;
+  }
+  const result = state.jobPipeline.result;
+  if (!result) {
+    els.jobPipelineResult.innerHTML = `
+      <div class="agent-queue-empty">No scan yet. Start with a direct employer or ATS job link.</div>
+    `;
+    return;
+  }
+  const checklist = result.handbookChecklist || {};
+  const edits = result.resumeEdits || {};
+  const resumeAgent = result.resumeAgent || {};
+  const score = result.score || {};
+  const ats = result.atsChecklist || {};
+  const topChanges = topLineChanges(result.lineAdjustments || []);
+  els.jobPipelineResult.innerHTML = `
+    <div class="pipeline-summary">
+      <div>
+        <span>Application score</span>
+        <strong>${Number(score.total || 0)}/100</strong>
+        <small>${escapeHtml(score.label || "not scored")}</small>
+      </div>
+      <div>
+        <span>Master resume</span>
+        <strong>${escapeHtml(result.selectedMasterResume || "auto")}</strong>
+        <small>${escapeHtml(checklist.roleFamily?.label || "Unknown role")}</small>
+      </div>
+      <div>
+        <span>Keyword coverage</span>
+        <strong>${Number(resumeAgent.keywordCoverage?.covered || 0)}/${Number(resumeAgent.keywordCoverage?.total || 0)}</strong>
+        <small>${escapeHtml(resumeAgent.score?.label || "resume scan")}</small>
+      </div>
+      <div>
+        <span>ATS check</span>
+        <strong>${escapeHtml(ats.copyPasteReady ? "Ready-ish" : "Review")}</strong>
+        <small>${escapeHtml(ats.status || "not checked")}</small>
+      </div>
+    </div>
+    <section class="top-changes-card">
+      <div>
+        <span>Do this first</span>
+        <h3>${topChanges.length ? "Update these resume lines" : "No major line edits"}</h3>
+      </div>
+      <ol>
+        ${topChanges.map((item) => `
+          <li>
+            <strong>${item.line ? `Line ${item.line}` : "Resume note"}</strong>
+            <span>${escapeHtml(item.replacement || item.action || "")}</span>
+          </li>
+        `).join("") || "<li><span>Review formatting, then apply manually.</span></li>"}
+      </ol>
+    </section>
+    <div class="pipeline-columns">
+      <article>
+        <h3>Exact master-resume line edits</h3>
+        ${lineAdjustmentBlock(result.lineAdjustments || [])}
+      </article>
+      <article>
+        <h3>Handbook keyword checklist</h3>
+        ${listBlock("Use these keywords", checklist.explicitTechnicalKeywords)}
+        ${listBlock("Missing", checklist.resumeMissingKeywords)}
+        <details>
+          <summary>More keyword detail</summary>
+          ${listBlock("Matched", checklist.resumeMatchedKeywords)}
+          ${listBlock("Repeated phrases", (checklist.repeatedJobPhrases || []).map((item) => `${item.phrase} ×${item.count}`))}
+        </details>
+      </article>
+      <article>
+        <h3>ATS / handbook pass</h3>
+        <div class="ats-status-card">
+          <strong>${escapeHtml(ats.status || "Not checked")}</strong>
+          <span>${escapeHtml(ats.note || "Deterministic readability check.")}</span>
+        </div>
+        ${listBlock("Fix before applying", ats.hazards)}
+        ${listBlock("Already OK", ats.passes)}
+      </article>
+      <article>
+        <h3>Resume edits to make</h3>
+        ${listBlock("Add or emphasize", (edits.addOrEmphasize || []).map((item) => item.bullet))}
+        ${listBlock("Do not add without evidence", edits.doNotAddWithoutEvidence)}
+        <details>
+          <summary>Compression notes</summary>
+          ${listBlock("Cut / compress", (edits.cutOrDeemphasize || []).map((item) => item.action))}
+        </details>
+      </article>
+      <article>
+        <h3>Prompt pack</h3>
+        <details>
+          <summary>Keyword prompt</summary>
+          <pre>${escapeHtml(result.prompts?.handbookKeywordPrompt || "")}</pre>
+        </details>
+        <details>
+          <summary>Resume tailoring prompt</summary>
+          <pre>${escapeHtml(result.prompts?.resumeTailoringPrompt || "")}</pre>
+        </details>
+        <details>
+          <summary>Deterministic tailoring brief</summary>
+          <div class="brief-actions">
+            <button class="copy-brief-button" data-copy-tailoring-brief type="button">Copy brief</button>
+            <button class="copy-brief-button" data-download-tailoring-brief type="button">Download .md</button>
+          </div>
+          <pre>${escapeHtml(result.tailoringBrief || "Brief unavailable.")}</pre>
+        </details>
+      </article>
+    </div>
+    <div class="pipeline-guardrails">
+      ${(result.guardrails || []).map((item) => `<span>${escapeHtml(item)}</span>`).join("")}
+    </div>
+  `;
+}
+
+function topLineChanges(adjustments = []) {
+  return adjustments
+    .filter((item) => item && ["add_or_replace", "do_not_add"].includes(item.type))
+    .slice(0, 5);
+}
+
+async function handleJobPipelineResultClick(event) {
+  const copyButton = event.target.closest?.("[data-copy-tailoring-brief]");
+  const downloadButton = event.target.closest?.("[data-download-tailoring-brief]");
+  if (!copyButton && !downloadButton) return;
+  const brief = state.jobPipeline.result?.tailoringBrief;
+  if (!brief) return;
+  if (downloadButton) {
+    downloadTextFile(briefFileName(state.jobPipeline.result), brief, "text/markdown;charset=utf-8");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(brief);
+    copyButton.textContent = "Copied";
+    setTimeout(() => { copyButton.textContent = "Copy brief"; }, 1600);
+  } catch {
+    copyButton.textContent = "Copy failed";
+    setTimeout(() => { copyButton.textContent = "Copy brief"; }, 1600);
+  }
+}
+
+function briefFileName(result) {
+  return `${[
+    result?.job?.company,
+    result?.job?.role,
+    "tailoring-brief"
+  ].filter(Boolean).join("-")}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 90) + ".md";
+}
+
+function downloadTextFile(fileName, text, type) {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function lineAdjustmentBlock(adjustments = []) {
+  const values = Array.isArray(adjustments) ? adjustments.filter(Boolean) : [];
+  if (!values.length) return `<p class="pipeline-empty-text">No line edits generated.</p>`;
+  return `
+    <ol class="line-adjustments">
+      ${values.slice(0, 10).map((item) => `
+        <li>
+          <strong>${item.line ? `Line ${item.line}` : "Resume note"}</strong>
+          ${item.current ? `<code>${escapeHtml(item.current)}</code>` : ""}
+          <span>${escapeHtml(item.action || "")}</span>
+          ${item.reason ? `<small>${escapeHtml(item.reason)}</small>` : ""}
+        </li>
+      `).join("")}
+    </ol>
+  `;
+}
+
+function listBlock(title, items = []) {
+  const values = Array.isArray(items) ? items.filter(Boolean) : [];
+  return `
+    <div class="pipeline-list-block">
+      <strong>${escapeHtml(title)}</strong>
+      ${values.length
+        ? `<ul>${values.slice(0, 8).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+        : `<p>None detected.</p>`}
+    </div>
+  `;
+}
+
+async function reviewAgentApplication(application) {
+  if (!application) return;
+  const approved = application.stage !== "approved_for_manual_submit";
+  const response = await fetch("/api/application-agent/review", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      applicationId: application.id,
+      approved,
+      resumeReviewed: document.querySelector("#resumeReviewed")?.checked || false,
+      claimsReviewed: document.querySelector("#claimsReviewed")?.checked || false,
+      eligibilityReviewed: document.querySelector("#eligibilityReviewed")?.checked || false,
+      locationReviewed: document.querySelector("#locationReviewed")?.checked || false
+    })
+  });
+  if (!response.ok) {
+    showAgentMessage(
+      response.status === 422
+        ? "Complete all four review checks before approval."
+        : "Could not save application review.",
+      "error"
+    );
+    return;
+  }
+  const payload = await response.json();
+  state.agent.applications[application.id] = payload.application;
+  state.agent.metrics = payload.metrics;
+  renderAgentOverview();
+  renderDetails();
+}
+
+function showAgentMessage(message, tone) {
+  const card = document.querySelector(".agent-card");
+  if (!card) return;
+  const notice = document.createElement("div");
+  notice.className = `agent-notice ${tone}`;
+  notice.textContent = message;
+  card.prepend(notice);
+}
+
+async function recordAgentOutcome(applicationId, stage) {
+  if (!applicationId) return;
+  const response = await fetch("/api/application-agent/outcome", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ applicationId, stage })
+  });
+  if (!response.ok) return;
+  const payload = await response.json();
+  state.agent.applications[applicationId] = payload.application;
+  state.agent.metrics = payload.metrics;
+  state.agent.outcomeAnalytics = payload.outcomeAnalytics || state.agent.outcomeAnalytics;
+  renderAgentOverview();
+  if (stage === "submitted") {
+    const role = state.roles.find((item) => item.id === state.selectedId);
+    if (role) {
+      state.tracker[role.id] = {
+        ...(state.tracker[role.id] || {}),
+        status: "Applied",
+        date: state.tracker[role.id]?.date || new Date().toISOString().slice(0, 10),
+        resumeVersion: payload.application.masterResume === "ai"
+          ? "ai-engineer-master"
+          : "general-swe-master",
+        updatedAt: new Date().toISOString()
+      };
+      saveJson("ng_tracker", state.tracker);
+      await queuePersistTracker();
+    }
+  }
+  renderListAndMetrics(true);
+}
+
+function isAggregatorUrl(value) {
+  try {
+    const host = new URL(value).hostname.replace(/^www\./, "");
+    return ["jobright.ai", "linkedin.com", "indeed.com", "ziprecruiter.com", "glassdoor.com"]
+      .some((domain) => host === domain || host.endsWith(`.${domain}`));
+  } catch {
+    return false;
+  }
+}
+
+async function saveDetail(id, rerender = false) {
   state.tracker[id] = {
     status: document.querySelector("#detailStatus").value,
     date: document.querySelector("#detailDate").value,
+    responseDate: document.querySelector("#detailResponseDate").value,
     deadline: document.querySelector("#detailDeadline").value,
     followUp: document.querySelector("#detailFollowUp").value,
     resumeVersion: document.querySelector("#detailResume").value,
-    notes: document.querySelector("#detailNotes").value
+    notes: document.querySelector("#detailNotes").value,
+    updatedAt: new Date().toISOString()
   };
   saveJson("ng_tracker", state.tracker);
+  await queuePersistTracker();
   if (rerender) renderListAndMetrics(true);
 }
 
@@ -781,7 +1524,7 @@ function tailoringBullets(role) {
 }
 
 function getStatus(role) {
-  return state.tracker[role.id]?.status || "Saved";
+  return state.tracker[role.id]?.status || "Discovered";
 }
 
 function parsePay(value) {
@@ -875,6 +1618,7 @@ function exportTracker() {
     chance: role.chance,
     status: getStatus(role),
     date: state.tracker[role.id]?.date || "",
+    response_date: state.tracker[role.id]?.responseDate || "",
     deadline: state.tracker[role.id]?.deadline || "",
     follow_up: state.tracker[role.id]?.followUp || "",
     resume_version: state.tracker[role.id]?.resumeVersion || "",
@@ -887,8 +1631,133 @@ function exportTracker() {
   const link = document.createElement("a");
   link.href = url;
   link.download = "application-tracker-export.csv";
+  link.hidden = true;
+  document.body.append(link);
   link.click();
-  URL.revokeObjectURL(url);
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function loadPersistentTracker() {
+  try {
+    const response = await fetch("/api/tracker", { cache: "no-store" });
+    if (!response.ok) throw new Error(`tracker API returned ${response.status}`);
+    const payload = await response.json();
+    state.revision = Number(payload.revision || 0);
+    const serverTracker = normalizeTracker(payload.tracker);
+    if (Object.keys(serverTracker).length) {
+      state.tracker = mergeTrackers(serverTracker, state.tracker);
+      saveJson("ng_tracker", state.tracker);
+      if (JSON.stringify(state.tracker) !== JSON.stringify(serverTracker)) {
+        await queuePersistTracker();
+      }
+    } else if (Object.keys(state.tracker).length) {
+      await queuePersistTracker();
+    }
+    setPersistence("saved");
+  } catch {
+    state.tracker = normalizeTracker(state.tracker);
+    setPersistence("local");
+  }
+}
+
+function queuePersistTracker() {
+  const operation = () => persistTracker();
+  state.saveChain = state.saveChain.then(operation, operation);
+  return state.saveChain;
+}
+
+async function persistTracker() {
+  setPersistence("saving");
+  try {
+    let response = await fetch("/api/tracker", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ revision: state.revision, tracker: state.tracker })
+    });
+    if (response.status === 409) {
+      const current = await response.json();
+      state.revision = Number(current.revision || 0);
+      state.tracker = mergeTrackers(current.tracker, state.tracker);
+      response = await fetch("/api/tracker", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revision: state.revision, tracker: state.tracker })
+      });
+    }
+    if (!response.ok) throw new Error(`tracker API returned ${response.status}`);
+    const payload = await response.json();
+    state.revision = Number(payload.revision || state.revision);
+    state.tracker = normalizeTracker(payload.tracker);
+    saveJson("ng_tracker", state.tracker);
+    setPersistence("saved");
+  } catch {
+    setPersistence("local");
+  }
+}
+
+function mergeTrackers(serverTracker, localTracker) {
+  const server = normalizeTracker(serverTracker);
+  const local = normalizeTracker(localTracker);
+  const merged = { ...server };
+  Object.entries(local).forEach(([id, localEntry]) => {
+    const serverEntry = server[id];
+    if (!serverEntry) {
+      merged[id] = localEntry;
+      return;
+    }
+    const serverUpdated = Date.parse(serverEntry.updatedAt || "") || 0;
+    const localUpdated = Date.parse(localEntry.updatedAt || "") || 0;
+    merged[id] = localUpdated >= serverUpdated ? localEntry : serverEntry;
+  });
+  return merged;
+}
+
+async function importTrackerFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const result = importTrackerCsv(await file.text(), state.roles, state.tracker);
+  state.tracker = result.tracker;
+  saveJson("ng_tracker", state.tracker);
+  await queuePersistTracker();
+  renderListAndMetrics(true);
+  const details = [
+    `${result.imported} matched`,
+    result.unmatched ? `${result.unmatched} unmatched` : "",
+    result.skipped ? `${result.skipped} skipped` : ""
+  ].filter(Boolean).join("; ");
+  setPersistence("saved", `Import complete: ${details}`);
+  els.persistenceStatus.title = result.unmatchedRows
+    .slice(0, 5)
+    .map((row) => `${row.company} — ${row.role}`)
+    .join("\n");
+  event.target.value = "";
+}
+
+function setPersistence(status, label = "") {
+  state.persistence = status;
+  if (!els.persistenceStatus) return;
+  const labels = {
+    loading: "Loading tracker…",
+    saving: "Saving…",
+    saved: "Saved to local server",
+    local: "Browser-only fallback"
+  };
+  els.persistenceStatus.textContent = label || labels[status] || status;
+  els.persistenceStatus.dataset.state = status;
+}
+
+function percent(value) {
+  return `${Math.round(Number(value || 0) * 100)}%`;
+}
+
+function formatRate(value) {
+  return `${Number(value || 0).toFixed(1)}%`;
+}
+
+function formatLift(value) {
+  const numeric = Number(value || 0);
+  return `${numeric >= 0 ? "+" : ""}${numeric.toFixed(1)}pp`;
 }
 
 function formatLocation(location) {
@@ -1062,7 +1931,7 @@ function chanceFromTier(tier) {
   if (tier.includes("Safe")) return "Higher";
   if (tier.includes("Reach")) return "Medium";
   if (tier.includes("Stretch")) return "Lower";
-  return "Medium";
+  return "Unknown";
 }
 
 function firstUrl(value) {

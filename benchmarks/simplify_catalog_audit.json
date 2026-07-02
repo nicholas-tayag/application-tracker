@@ -1,0 +1,113 @@
+{
+  "generated_at": "2026-06-22T01:17:30-04:00",
+  "source": {
+    "repository": "https://github.com/SimplifyJobs/New-Grad-Positions",
+    "commit": "81934a025d8072c4909b2e7d7ffe1e0f38bb4ad0",
+    "commit_date": "2026-06-22T05:01:23Z",
+    "input": ".github/scripts/listings.json",
+    "source_rows": 18258
+  },
+  "previous_catalog": {
+    "selected_roles.csv": 160,
+    "newgrad_best_adds.csv": 75,
+    "aiml_best_roles.csv": 80
+  },
+  "jobright_rows_removed": {
+    "selected_roles.csv": 0,
+    "newgrad_best_adds.csv": 75,
+    "aiml_best_roles.csv": 80,
+    "total": 155
+  },
+  "replacement_rows_added": {
+    "selected_roles.csv": 52,
+    "newgrad_best_adds.csv": 25,
+    "aiml_best_roles.csv": 23,
+    "total": 100
+  },
+  "selection": {
+    "eligible_source_rows": 141,
+    "eligible_urls_verified": 138,
+    "duplicates_or_partition_overlaps_skipped": 53,
+    "dream_company_expansion": {
+      "explicit_early_career_rows": 2,
+      "stretch_rows_requiring_experience_review": 8,
+      "companies_added": [
+        "Amazon",
+        "Apple",
+        "CoreWeave",
+        "Google",
+        "Robinhood",
+        "Salesforce",
+        "ServiceNow",
+        "Snowflake",
+        "Twilio"
+      ],
+      "requested_companies_without_active_source_listing": [
+        "Datadog",
+        "Okta",
+        "Temporal",
+        "Vercel",
+        "Wiz"
+      ]
+    },
+    "requirements": [
+      "active and visible in the pinned SimplifyJobs source",
+      "US location signal",
+      "new-grad, graduate, entry-level, junior, associate, Engineer I/1, or university-graduate title signal",
+      "software, backend, platform, cloud, infrastructure, data, AI, or ML engineering title signal",
+      "direct employer or ATS URL"
+    ],
+    "exclusions": [
+      "internships and co-ops",
+      "senior, staff, principal, lead, manager, and level 2+ titles",
+      "PhD-only and advanced-degree-only roles",
+      "obvious security-clearance, defense, or military-oriented roles",
+      "test, QA, hardware, analyst, consulting, and obvious staffing-feed noise",
+      "non-US-only locations",
+      "Simplify, Jobright, and other aggregator URLs"
+    ]
+  },
+  "url_verification": {
+    "method": "HTTP GET with redirects enabled; final host checked against aggregator denylist; response body scanned for explicit existing-clearance requirements",
+    "included_statuses": {
+      "200": 100
+    },
+    "broken_or_blocked_urls_excluded": [
+      {
+        "company": "SeatGeek",
+        "role": "Software Engineer – New Grad",
+        "url": "https://seatgeek.com/jobs/7858968?gh_jid=7858968",
+        "status": 403
+      },
+      {
+        "company": "Citadel Securities",
+        "role": "Software Engineer – University Graduate - US",
+        "url": "https://www.citadelsecurities.com/careers/details/software-engineer-university-graduate-us/",
+        "status": 403
+      },
+      {
+        "company": "Uber",
+        "role": "Software Engineer 1",
+        "url": "https://www.uber.com/global/en/careers/list/156116/",
+        "status": 406
+      }
+    ]
+  },
+  "defaults": {
+    "fit_score": "",
+    "chance_level": "",
+    "salary": "",
+    "qualifications_excerpt": "",
+    "why_you_fit": "",
+    "sponsorship": "Blank means unknown; only explicit source restrictions are retained.",
+    "work_model": "Remote only when the source location explicitly says remote."
+  },
+  "caveats": [
+    "This is a point-in-time snapshot; employer pages and Simplify active flags can change after the audit.",
+    "HTTP 200 proves the page responded during refresh, not that an employer will keep accepting applications.",
+    "Eligibility is conservatively inferred from source metadata and title/location signals; full job descriptions were not republished.",
+    "Eight dream-company stretch rows are clearly marked for manual experience-requirement review and are not asserted to be new-grad roles.",
+    "Datadog, Wiz, Temporal, Vercel, and Okta had no active listing in the pinned source snapshot and should be monitored in a future refresh.",
+    "No salary, fit score, interview chance, qualifications, or resume-match claims were invented."
+  ]
+}

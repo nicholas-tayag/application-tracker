@@ -3,3 +3,8 @@ node_modules/
 Thumbs.db
 *.log
 dist/
+data/tracker-state.json
+data/tracker-state.json.*.tmp
+data/application-agent-state.json
+data/application-agent-state.json.*.tmp
+data/application-packages/

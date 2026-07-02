@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Apply Safe Autofill",
+  "version": "0.1.0",
+  "description": "Fills only review-approved basic contact fields from the local Application Tracker.",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["http://localhost:4177/*", "https://*/*"],
+  "action": {
+    "default_title": "Apply Safe Autofill",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
