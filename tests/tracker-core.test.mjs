@@ -113,3 +113,21 @@ test("matches equivalent direct URLs with optional www hosts", () => {
   assert.equal(result.unmatched, 0);
   assert.equal(result.tracker["amazon-role"].status, "Applied");
 });
+
+test("imports URL-matched rows even when the role title is missing", () => {
+  const roles = [{
+    id: "stripe-role",
+    company: "Stripe",
+    role: "Software Engineer",
+    location: "Remote",
+    url: "https://stripe.com/jobs/listing/software-engineer/123456"
+  }];
+  const result = importTrackerCsv(
+    "company,job_url,status\nStripe,https://stripe.com/jobs/listing/software-engineer/123456,applied",
+    roles
+  );
+  assert.equal(result.imported, 1);
+  assert.equal(result.skipped, 0);
+  assert.equal(result.unmatched, 0);
+  assert.equal(result.tracker["stripe-role"].status, "Applied");
+});
