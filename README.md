@@ -14,6 +14,17 @@ Job searching creates a surprising amount of busywork: comparing roles, remember
 - Shows funnel progress such as submissions, screens, pending responses, and response time.
 - Prepares evidence-based resume suggestions without submitting applications automatically.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    A[Role catalog and CSV imports] --> B[Local application workspace]
+    B --> C[Priorities and role ranking]
+    B --> D[Application history and follow-ups]
+    B --> E[Funnel analytics and exports]
+    B --> F[Human-reviewed application prep]
+```
+
 ## Run locally
 
 ```bash
